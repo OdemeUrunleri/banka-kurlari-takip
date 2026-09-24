@@ -6,7 +6,7 @@ on:
   schedule:
     # Her gün Türkiye saatiyle 09:17'de çalışır.
     # Saat başı yoğunluğunu azaltmak için :00 yerine :17 kullanıyoruz.
-    - cron: "00 6 * * *"
+    - cron: "00 10 * * *"
       timezone: "Europe/Istanbul"
 
 permissions:
