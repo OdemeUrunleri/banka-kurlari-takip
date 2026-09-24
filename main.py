@@ -55,15 +55,7 @@ def serialize_row(row: dict) -> dict:
 
 
 def write_latest(rows: list[dict]) -> None:
-    """
-    Son yapılan çekimi latest_rates.csv dosyasına yazar.
-    Bu dosya her çalıştırmada tamamen yenilenir.
-    """
-
-    LATEST_PATH.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    LATEST_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     with LATEST_PATH.open(
         "w",
@@ -84,173 +76,52 @@ def write_latest(rows: list[dict]) -> None:
 
 
 def append_history(rows: list[dict]) -> None:
-    """
-    Geçmiş verileri rates_history.csv dosyasında tutar.
-
-    ÖZEL DURUM:
-    24 Eylül 2026 tarihinde çalıştırıldığında,
-    o güne ait daha önce yazılmış kayıtları siler
-    ve yalnızca en son yapılan çekimi bırakır.
-
-    Diğer bütün tarihlerde normal şekilde
-    geçmiş dosyasının altına yeni veriler eklenir.
-    """
-
     HISTORY_PATH.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    # Sadece temizlemek istediğimiz tarih.
-    target_date = "2026-09-24"
+    exists = (
+        HISTORY_PATH.exists()
+        and HISTORY_PATH.stat().st_size > 0
+    )
 
-    # Şu an yapılan çekimin tarihi.
-    current_run_date = ""
+    with HISTORY_PATH.open(
+        "a",
+        encoding="utf-8-sig",
+        newline="",
+    ) as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=FIELDNAMES,
+        )
 
-    if rows:
-        current_run_date = str(
-            rows[0].get("run_at", "")
-        )[:10]
-
-    # -------------------------------------------------
-    # SADECE 24 EYLÜL 2026 İÇİN ÖZEL TEMİZLEME
-    # -------------------------------------------------
-    if current_run_date == target_date:
-
-        old_rows = []
-        removed_count = 0
-
-        # Eski history dosyası varsa oku.
-        if (
-            HISTORY_PATH.exists()
-            and HISTORY_PATH.stat().st_size > 0
-        ):
-            with HISTORY_PATH.open(
-                "r",
-                encoding="utf-8-sig",
-                newline="",
-            ) as handle:
-
-                reader = csv.DictReader(handle)
-
-                for old_row in reader:
-
-                    old_run_at = str(
-                        old_row.get("run_at", "")
-                    )
-
-                    old_date = old_run_at[:10]
-
-                    # 24 Eylül kayıtlarını geçmişten çıkar.
-                    if old_date == target_date:
-                        removed_count += 1
-                        continue
-
-                    # Diğer bütün günleri koru.
-                    old_rows.append(old_row)
-
-        # History dosyasını yeniden oluştur.
-        with HISTORY_PATH.open(
-            "w",
-            encoding="utf-8-sig",
-            newline="",
-        ) as handle:
-
-            writer = csv.DictWriter(
-                handle,
-                fieldnames=FIELDNAMES,
-            )
-
+        if not exists:
             writer.writeheader()
 
-            # Önce 23 Eylül ve öncesindeki
-            # bütün geçmiş verileri geri yaz.
-            for old_row in old_rows:
-                writer.writerow(
-                    {
-                        key: old_row.get(key, "")
-                        for key in FIELDNAMES
-                    }
-                )
-
-            # Ardından şu an yapılan
-            # yeni 24 Eylül çekimini ekle.
-            for row in rows:
-                writer.writerow(
-                    serialize_row(row)
-                )
-
-        print(
-            f"[HISTORY] {target_date} tarihindeki "
-            f"{removed_count} eski kayıt silindi."
-        )
-
-        print(
-            f"[HISTORY] Yeni {target_date} çekimi eklendi: "
-            f"{len(rows)} kayıt."
-        )
-
-    # -------------------------------------------------
-    # DİĞER GÜNLERDE NORMAL ÇALIŞMA
-    # -------------------------------------------------
-    else:
-
-        exists = (
-            HISTORY_PATH.exists()
-            and HISTORY_PATH.stat().st_size > 0
-        )
-
-        with HISTORY_PATH.open(
-            "a",
-            encoding="utf-8-sig",
-            newline="",
-        ) as handle:
-
-            writer = csv.DictWriter(
-                handle,
-                fieldnames=FIELDNAMES,
+        for row in rows:
+            writer.writerow(
+                serialize_row(row)
             )
-
-            if not exists:
-                writer.writeheader()
-
-            for row in rows:
-                writer.writerow(
-                    serialize_row(row)
-                )
-
-        print(
-            f"[HISTORY] Yeni çekim geçmişe eklendi: "
-            f"{len(rows)} kayıt."
-        )
 
 
 def main() -> None:
-
     print("=== Doviz.com Kur Takip v0.3 ===")
     print("Kapsam: USD + EUR + GRAM ALTIN")
     print("Sağlayıcı filtresi: YOK\n")
 
-    # Türkiye saatine göre çekim zamanı.
     run_at = datetime.now(
         ZoneInfo("Europe/Istanbul")
     ).isoformat(
         timespec="seconds"
     )
 
-    # Doviz.com üzerinden bütün ürünleri çek.
     rows, failures = scrape_all_products(
         PRODUCTS
     )
 
-    # -------------------------------------------------
-    # SAYFA HATASI KONTROLÜ
-    # -------------------------------------------------
-
-    # Herhangi bir ürün sayfasında hata oluşursa
-    # eksik snapshot geçmişe yazılmasın.
+    # Sayfa bazında hata varsa eksik snapshot'ı geçmişe yazma.
     if failures:
-
         print("\n=== SAYFA HATALARI ===")
 
         for item in failures:
@@ -261,15 +132,10 @@ def main() -> None:
 
         raise SystemExit(2)
 
-    # Hiç veri çekilemediyse dur.
     if not rows:
         raise SystemExit(
             "FATAL: Hiç veri çekilemedi."
         )
-
-    # -------------------------------------------------
-    # ÜRÜN EKSİKLİĞİ KONTROLÜ
-    # -------------------------------------------------
 
     found_codes = {
         row.get("code")
@@ -282,7 +148,6 @@ def main() -> None:
     )
 
     if missing_codes:
-
         raise SystemExit(
             "FATAL: Şu ürünler tamamen eksik: "
             + ", ".join(
@@ -290,39 +155,18 @@ def main() -> None:
             )
         )
 
-    # -------------------------------------------------
-    # RUN_AT EKLE
-    # -------------------------------------------------
-
-    # Aynı çalıştırmanın bütün satırlarına
-    # aynı çekim zamanı atanır.
     for row in rows:
         row["run_at"] = run_at
 
-    # -------------------------------------------------
-    # DOSYALARI OLUŞTUR
-    # -------------------------------------------------
-
-    # Son çekim snapshot'ı.
+    # Veri tam ise çıktıları üret.
     write_latest(rows)
-
-    # Geçmiş verisi.
-    # 24 Eylül'de eski 24 Eylül verilerini temizler.
     append_history(rows)
-
-    # History CSV'nin tamamından
-    # Excel yeniden oluşturulur.
     build_excel(
         HISTORY_PATH,
         EXCEL_PATH,
     )
 
-    # -------------------------------------------------
-    # TERMINAL ÖZETİ
-    # -------------------------------------------------
-
     for code in PRODUCTS:
-
         product_rows = [
             row
             for row in rows
@@ -374,10 +218,6 @@ def main() -> None:
         f"{EXCEL_PATH}"
     )
 
-    # -------------------------------------------------
-    # KONTROL / ERROR SATIRLARI
-    # -------------------------------------------------
-
     control_rows = [
         row
         for row in rows
@@ -385,13 +225,11 @@ def main() -> None:
     ]
 
     if control_rows:
-
         print(
             "\n=== KONTROL / ERROR KAYITLARI ==="
         )
 
         for row in control_rows:
-
             print(
                 f"{row['code']} | "
                 f"{row['provider']} | "
